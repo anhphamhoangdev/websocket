@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seat Booking</title>
+    <style>
+        .seat {
+            width: 100px;
+            height: 50px;
+            margin: 10px;
+            background-color: #ddd;
+            display: inline-block;
+            text-align: center;
+            line-height: 50px;
+            cursor: pointer;
+        }
+
+        .booked {
+            background-color: #f00;
+            color: #fff;
+        }
+
+        #connectionInfo {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="connectionInfo"></div>
+    <div id="seat1" class="seat">Seat 1</div>
+    <div id="seat2" class="seat">Seat 2</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io({
+            transports: ['websocket'] // Bắt buộc sử dụng WebSocket
+        });
+
+        const seats = document.querySelectorAll('.seat');
+        const connectionInfoElement = document.getElementById('connectionInfo');
+
+        seats.forEach(seat => {
+            seat.addEventListener('click', () => {
+                if (!seat.classList.contains('booked')) {
+                    socket.emit('bookSeat', seat.id);
+                }
+            });
+        });
+
+        socket.on('connectionInfo', (info) => {
+            connectionInfoElement.innerHTML = `
+                <p>Connection ID: ${info.id}</p>
+                <p>Transport: ${info.transport}</p>
+                <p>Remote Address: ${info.remoteAddress}</p>
+                <p>WebSocket Path: ${info.url}</p>
+            `;
+        });
+
+        socket.on('seatStatus', (status) => {
+            for (const [seatId, isBooked] of Object.entries(status)) {
+                if (isBooked) {
+                    document.getElementById(seatId).classList.add('booked');
+                }
+            }
+        });
+
+        socket.on('seatBooked', (seatId) => {
+            document.getElementById(seatId).classList.add('booked');
+        });
+
+        socket.on('connect_error', (error) => {
+            console.error('Connection error:', error);
+            connectionInfoElement.innerHTML = `<p>Connection error: ${error.message}</p>`;
+        });
+    </script>
+</body>
+
+</html>
