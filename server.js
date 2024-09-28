@@ -1,9 +1,7 @@
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
-const io = require('socket.io')(http, {
-    transports: ['websocket'] // Bắt buộc sử dụng WebSocket
-});
+const io = require('socket.io')(http);
 
 console.log('Server script is running');
 
@@ -12,49 +10,68 @@ app.get('/', (req, res) => {
     res.sendFile(__dirname + '/client.html');
 });
 
-const seats = {
-    seat1: false,
-    seat2: false
+const films = {
+    film1: {
+        seats: {
+            seat1: null,
+            seat2: null
+        }
+    },
+    film2: {
+        seats: {
+            seat1: null,
+            seat2: null
+        }
+    }
 };
 
-io.on('connection', (socket) => {
-    console.log('A user connected');
+function setupNamespace(namespace, filmName) {
+    namespace.on('connection', (socket) => {
+        const name = socket.handshake.query.name;
+        console.log(`User ${name} connected to ${filmName} namespace`);
 
-    // Lấy thông tin về kết nối
-    const connectionInfo = {
-        id: socket.id,
-        transport: socket.conn.transport.name,
-        remoteAddress: socket.handshake.address,
-        url: socket.handshake.url
-    };
+        const connectionInfo = {
+            id: socket.id,
+            transport: socket.conn.transport.name,
+            remoteAddress: socket.handshake.address,
+            url: socket.handshake.url
+        };
 
-    // Log đường dẫn WebSocket
-    console.log('WebSocket path:', connectionInfo.url);
+        console.log('Connection info:', connectionInfo);
 
-    console.log('Connection info:', connectionInfo);
+        socket.emit('connectionInfo', connectionInfo);
+        console.log('Sent connection info to client');
 
-    // Gửi thông tin kết nối cho client
-    socket.emit('connectionInfo', connectionInfo);
+        socket.emit('seatStatus', films[filmName].seats);
+        console.log(`Sent initial seat status for ${filmName}:`, films[filmName].seats);
 
-    // Gửi trạng thái ghế hiện tại cho client mới kết nối
-    socket.emit('seatStatus', seats);
-    console.log('Sent initial seat status:', seats);
+        socket.on('bookSeat', (seatId) => {
+            console.log(`Received bookSeat event for ${seatId} from ${name} in ${filmName}`);
+            if (!films[filmName].seats[seatId]) {
+                films[filmName].seats[seatId] = name;
+                namespace.emit('seatBooked', { seatId, bookedBy: name });
+                console.log(`Seat ${seatId} booked by ${name} in ${filmName}`);
+            }
+        });
 
-    socket.on('bookSeat', (seatId) => {
-        console.log('Received bookSeat event for', seatId);
-        if (!seats[seatId]) {
-            seats[seatId] = true;
-            io.emit('seatBooked', seatId);
-            console.log('Seat booked:', seatId);
-        }
+        socket.on('disconnect', () => {
+            console.log(`User ${name} disconnected from ${filmName} namespace`);
+        });
     });
+}
 
-    socket.on('disconnect', () => {
-        console.log('User disconnected');
-    });
-});
+const film1Namespace = io.of('/booking/film1');
+const film2Namespace = io.of('/booking/film2');
+
+setupNamespace(film1Namespace, 'film1');
+setupNamespace(film2Namespace, 'film2');
 
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+});
+
+// Log all incoming connections
+io.engine.on('connection', (socket) => {
+    console.log('New connection attempt:', socket.id);
 });

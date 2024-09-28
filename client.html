@@ -15,67 +15,171 @@
             text-align: center;
             line-height: 50px;
             cursor: pointer;
+            font-size: 14px;
         }
 
         .booked {
             background-color: #f00;
             color: #fff;
+            cursor: not-allowed;
         }
 
         #connectionInfo {
             margin-bottom: 20px;
         }
+
+        #connectForm, #filmSelection, #backButton {
+            margin-bottom: 20px;
+        }
+
+        #seatBookingArea {
+            display: none;
+        }
     </style>
 </head>
 
 <body>
+<div id="connectForm">
+    <input type="text" id="nameInput" placeholder="Enter your name">
+    <button id="connectButton">Connect</button>
+</div>
+
+<div id="filmSelection" style="display: none;">
+    <button id="film1Button">Film 1</button>
+    <button id="film2Button">Film 2</button>
+</div>
+
+<div id="seatBookingArea" style="display: none;">
     <div id="connectionInfo"></div>
     <div id="seat1" class="seat">Seat 1</div>
     <div id="seat2" class="seat">Seat 2</div>
+    <button id="backButton">Back to Film Selection</button>
+</div>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-        const socket = io({
-            transports: ['websocket'] // Bắt buộc sử dụng WebSocket
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    let socket;
+    const connectForm = document.getElementById('connectForm');
+    const nameInput = document.getElementById('nameInput');
+    const connectButton = document.getElementById('connectButton');
+    const filmSelection = document.getElementById('filmSelection');
+    const film1Button = document.getElementById('film1Button');
+    const film2Button = document.getElementById('film2Button');
+    const seatBookingArea = document.getElementById('seatBookingArea');
+    const connectionInfoElement = document.getElementById('connectionInfo');
+    const seats = document.querySelectorAll('.seat');
+    const backButton = document.getElementById('backButton');
+
+    let userName = '';
+
+    connectButton.addEventListener('click', () => {
+        userName = nameInput.value.trim();
+        if (userName) {
+            console.log('Name entered:', userName);
+            connectForm.style.display = 'none';
+            filmSelection.style.display = 'block';
+        } else {
+            console.log('Name is empty, showing alert');
+            alert('Please enter your name');
+        }
+    });
+
+    film1Button.addEventListener('click', () => connectToSocket('film1'));
+    film2Button.addEventListener('click', () => connectToSocket('film2'));
+
+    backButton.addEventListener('click', () => {
+        console.log('Returning to film selection');
+        if (socket) {
+            socket.disconnect();
+        }
+        seatBookingArea.style.display = 'none';
+        filmSelection.style.display = 'block';
+        resetSeats();
+    });
+
+    function connectToSocket(film) {
+        console.log(`Initializing socket connection for ${film}`);
+        socket = io(`/booking/${film}`, {
+            transports: ['websocket'],
+            query: { name: userName }
         });
 
-        const seats = document.querySelectorAll('.seat');
-        const connectionInfoElement = document.getElementById('connectionInfo');
-
-        seats.forEach(seat => {
-            seat.addEventListener('click', () => {
-                if (!seat.classList.contains('booked')) {
-                    socket.emit('bookSeat', seat.id);
-                }
-            });
-        });
-
-        socket.on('connectionInfo', (info) => {
-            connectionInfoElement.innerHTML = `
-                <p>Connection ID: ${info.id}</p>
-                <p>Transport: ${info.transport}</p>
-                <p>Remote Address: ${info.remoteAddress}</p>
-                <p>WebSocket Path: ${info.url}</p>
-            `;
-        });
-
-        socket.on('seatStatus', (status) => {
-            for (const [seatId, isBooked] of Object.entries(status)) {
-                if (isBooked) {
-                    document.getElementById(seatId).classList.add('booked');
-                }
-            }
-        });
-
-        socket.on('seatBooked', (seatId) => {
-            document.getElementById(seatId).classList.add('booked');
+        socket.on('connect', () => {
+            console.log('Socket connected successfully');
+            filmSelection.style.display = 'none';
+            seatBookingArea.style.display = 'block';
         });
 
         socket.on('connect_error', (error) => {
             console.error('Connection error:', error);
             connectionInfoElement.innerHTML = `<p>Connection error: ${error.message}</p>`;
         });
-    </script>
+
+        socket.on('connectionInfo', (info) => {
+            console.log('Received connection info:', info);
+            connectionInfoElement.innerHTML = `
+                    <p>Name: ${userName}</p>
+                    <p>Film: ${film}</p>
+                    <p>Connection ID: ${info.id}</p>
+                    <p>Transport: ${info.transport}</p>
+                    <p>Remote Address: ${info.remoteAddress}</p>
+                    <p>WebSocket Path: ${info.url}</p>
+                `;
+        });
+
+        socket.on('seatStatus', (status) => {
+            console.log('Received initial seat status:', status);
+            updateSeats(status);
+        });
+
+        socket.on('seatBooked', ({ seatId, bookedBy }) => {
+            console.log('Seat booked:', seatId, 'by', bookedBy);
+            updateSeat(seatId, bookedBy);
+        });
+
+        setupSeatListeners();
+    }
+
+    function updateSeats(status) {
+        for (const [seatId, bookedBy] of Object.entries(status)) {
+            updateSeat(seatId, bookedBy);
+        }
+    }
+
+    function updateSeat(seatId, bookedBy) {
+        const seatElement = document.getElementById(seatId);
+        if (seatElement) {
+            if (bookedBy) {
+                seatElement.classList.add('booked');
+                seatElement.textContent = `${seatId} (${bookedBy})`;
+                seatElement.style.pointerEvents = 'none';
+            } else {
+                seatElement.classList.remove('booked');
+                seatElement.textContent = seatId;
+                seatElement.style.pointerEvents = 'auto';
+            }
+        }
+    }
+
+    function resetSeats() {
+        seats.forEach(seat => {
+            seat.classList.remove('booked');
+            seat.textContent = seat.id;
+            seat.style.pointerEvents = 'auto';
+        });
+    }
+
+    function setupSeatListeners() {
+        seats.forEach(seat => {
+            seat.addEventListener('click', () => {
+                if (!seat.classList.contains('booked')) {
+                    console.log('Attempting to book seat:', seat.id);
+                    socket.emit('bookSeat', seat.id);
+                }
+            });
+        });
+    }
+</script>
 </body>
 
 </html>
